@@ -1,31 +1,17 @@
+import tkinter as tk
 import random
 import sys
 
-# =========================================
-# Variables globales
-# =========================================
+# ======================================================
+#                 Paramètres et Constantes
+# ======================================================
 
-# Indique si la partie est en cours (True) ou terminée (False)
-en_jeu = False
-
-# Montant initial de jetons (buy-in)
-solde_jetons = 100
-print("Votre montant de départ est :", solde_jetons)
-
-# Mise par défaut
-mise = 1
-
-# Texte de relance
-message_relance = "Appuyez sur (d) pour redistribuer ou (q) pour quitter."
-
-# Enseignes : Cœurs (C), Carreaux (D), Piques (P), Trèfles (T)
-enseigne_possibles = ('C', 'D', 'P', 'T')
-
-# Valeurs possibles des cartes
-valeurs_possibles = ('A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K')
-
-# Dictionnaire des valeurs en points (l'As sera géré plus finement dans la classe Main)
-dico_valeurs = {
+# Enseignes (Coeur, Carreau, Pique, Trèfle) -- arbitraire 'C', 'D', 'P', 'T'
+ENSEIGNES = ('C', 'D', 'P', 'T')
+# Valeurs
+VALEURS = ('A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K')
+# Valeurs de points (l'As sera géré plus finement)
+DICO_VALEURS = {
     'A': 1,
     '2': 2,
     '3': 3,
@@ -41,302 +27,502 @@ dico_valeurs = {
     'K': 10
 }
 
-# =========================================
-# Comptage de cartes (Hi-Lo)
-# =========================================
-running_count = 0  # Compteur de cartes global
+# Nombre de decks
+NB_DECKS = 3
 
-def compter_carte(valeur_carte):
-    """
-    Met à jour le compteur (running_count) selon le système Hi-Lo.
-    Valeur_carte est la valeur type 'A', '2', ..., '10', 'J', 'Q', 'K'.
-    """
-    global running_count
+# Seuil de re-mélange : si le shoe est trop bas, on re-mélange
+THRESHOLD_REMELANGE = 40  # Moins de 40 cartes => on remélange
 
-    if valeur_carte in ('2', '3', '4', '5', '6'):
-        running_count += 1
-    elif valeur_carte in ('10', 'J', 'Q', 'K', 'A'):
-        running_count -= 1
-    # Cartes 7, 8, 9 ne changent pas le count (0)
+# Comptage de cartes (Hi-Lo) : global et persistant
+running_count = 0
 
-# Fonction pour donner un conseil (très simplifié) en fonction du count
-def conseil_count():
-    """
-    Retourne un conseil basé sur la valeur du running_count.
-    Ceci est très basique, juste pour l’exemple.
-    """
-    global running_count
-    if running_count > 2:
-        return f"Le compte est positif (+{running_count}) : Le jeu est en votre faveur, vous pouvez miser plus !"
-    elif running_count < -2:
-        return f"Le compte est négatif ({running_count}) : Attention, le croupier est avantagé. Baissez la mise ou soyez prudent."
-    else:
-        return f"Le compte est proche de l’équilibre ({running_count}). Jouez normalement."
+# Solde par défaut
+solde_jetons = 200
+# Mise courante
+mise = 10  # Par défaut, modifiable via l’UI
 
-# =========================================
-# Classe Carte
-# =========================================
+# Pour gérer la 2ᵉ main
+use_second_hand = False  # Indique si la 2ᵉ main est activée ou non
+
+# ======================================================
+#                  Classes
+# ======================================================
 
 class Carte:
     def __init__(self, enseigne, valeur):
-        self.enseigne = enseigne  # 'C', 'D', 'P', 'T'
-        self.valeur = valeur      # 'A', '2', '3', ..., 'J', 'Q', 'K'
+        self.enseigne = enseigne
+        self.valeur = valeur
 
     def __str__(self):
+        """Ex: 'CA' = As de Coeur, 'P10' = 10 de Pique"""
         return f"{self.enseigne}{self.valeur}"
 
-    def afficher_carte(self):
-        print(str(self))
-
-# =========================================
-# Classe Main (Hand)
-# =========================================
-
 class Main:
-    """
-    Représente la main d'un joueur ou du croupier.
-    L’As peut valoir 1 ou 11 (géré dans la méthode calculer_valeur).
-    """
-
     def __init__(self):
         self.cartes = []
         self.total = 0
-        self.possede_as = False
-
-    def __str__(self):
-        composition = " ".join(str(carte) for carte in self.cartes)
-        return f"La main contient : {composition}"
+        self.possede_as = False  # Pour repérer si un As est présent
 
     def ajouter_carte(self, carte):
-        """
-        Ajoute une carte à la main et met à jour la valeur ET
-        met à jour le compteur Hi-Lo.
-        """
         self.cartes.append(carte)
-        # Mise à jour de la valeur
+        # Gérer la valeur
         if carte.valeur == 'A':
             self.possede_as = True
-        self.total += dico_valeurs[carte.valeur]
-        # Mise à jour du count
+        self.total += DICO_VALEURS[carte.valeur]
+        # Comptage
         compter_carte(carte.valeur)
 
     def calculer_valeur(self):
         """
-        Calcule la valeur de la main en considérant l’As comme 1 ou 11.
+        Ajoute +10 si on a un As et qu'on ne bust pas en le comptant comme 11.
         """
-        if self.possede_as and self.total <= 11:
-            return self.total + 10
-        else:
-            return self.total
+        total_temp = self.total
+        if self.possede_as and total_temp <= 11:
+            total_temp += 10
+        return total_temp
 
-    def afficher_main(self, cacher_premiere=False):
-        if cacher_premiere and en_jeu:
-            print("Carte cachée")
-            for carte in self.cartes[1:]:
-                carte.afficher_carte()
-        else:
-            for carte in self.cartes:
-                carte.afficher_carte()
-
-# =========================================
-# Classe Paquet (Deck)
-# =========================================
-
-class Paquet:
-    def __init__(self):
-        self.paquet = []
-        for enseigne in enseigne_possibles:
-            for valeur in valeurs_possibles:
-                self.paquet.append(Carte(enseigne, valeur))
-
-    def melanger(self):
-        random.shuffle(self.paquet)
-
-    def distribuer(self):
-        return self.paquet.pop()
+    def est_bust(self):
+        """Renvoie True si la main dépasse 21."""
+        return self.calculer_valeur() > 21
 
     def __str__(self):
-        return " ".join(str(carte) for carte in self.paquet)
+        return " ".join(str(c) for c in self.cartes)
 
-# =========================================
-# Fonctions du jeu
-# =========================================
-
-def demander_mise():
-    global mise, solde_jetons
-
-    mise = 0
-    print("\nQuel montant souhaitez-vous miser ? (Entrez un entier) :")
-
-    while True:
-        try:
-            saisie = input(">> ")
-            montant = int(saisie)
-            if 1 <= montant <= solde_jetons:
-                mise = montant
-                break
-            else:
-                print(f"Mise invalide. Vous avez {solde_jetons} jetons disponibles.")
-        except ValueError:
-            print("Veuillez entrer un nombre entier.")
-
-def distribuer_cartes():
+class Shoe:
     """
-    Distribue les cartes pour commencer un nouveau tour.
+    Représente un “sabot” avec NB_DECKS paquets.
+    Persiste tant qu’on n’a pas besoin de re-mélanger.
     """
-    global en_jeu, paquet, main_joueur, main_croupier
-    global solde_jetons, mise, resultat
-    global running_count  # On veut afficher l'état du compteur
+    def __init__(self):
+        self.liste_cartes = []
+        for _ in range(NB_DECKS):
+            for e in ENSEIGNES:
+                for v in VALEURS:
+                    self.liste_cartes.append(Carte(e, v))
+        random.shuffle(self.liste_cartes)
 
-    # Avant de créer un nouveau paquet, on peut décider
-    # si l’on veut remettre le count à 0 quand on recharge un deck :
-    # Pour simplifier, on va considérer qu’on reprend un deck neuf à chaque manche,
-    # donc on réinitialise le running_count. À vous d’adapter selon vos règles.
-    running_count = 0
+    def distribuer(self):
+        """
+        Donne la première carte du sabot.
+        Si le sabot est trop bas, on fait un re-mélange (dans un vrai casino, on redémarrerait
+        aussi le count... ici on montre un exemple de logique "simplifiée").
+        """
+        if len(self.liste_cartes) < THRESHOLD_REMELANGE:
+            # On re-mélange le shoe
+            # Dans la vraie vie, on remettrait le count à 0,
+            # car c'est un nouveau sabot. Ici, on fera un print indiquant
+            # "mélange" et on continue le count pour la démo,
+            # mais en pratique, un compteur prudent remettrait le count à 0.
+            print(">>>> Le croupier re-mélange le sabot ! (dans un vrai casino, on reset le count)")
+            global running_count
+            running_count = 0
+            self.__init__()  # On recrée un nouveau sabotage et on shuffle
+        return self.liste_cartes.pop()
 
-    paquet = Paquet()
-    paquet.melanger()
+# ======================================================
+#         Comptage Hi-Lo et Conseils Avancés
+# ======================================================
 
-    demander_mise()
+def compter_carte(valeur):
+    """
+    Met à jour le running_count selon Hi-Lo.
+    2-6 => +1
+    10, J, Q, K, A => -1
+    7, 8, 9 => 0
+    """
+    global running_count
+    if valeur in ('2', '3', '4', '5', '6'):
+        running_count += 1
+    elif valeur in ('10','J','Q','K','A'):
+        running_count -= 1
+    # 7,8,9 => pas de changement
 
-    main_joueur = Main()
-    main_croupier = Main()
-
-    # Distribue deux cartes au joueur
-    main_joueur.ajouter_carte(paquet.distribuer())
-    main_joueur.ajouter_carte(paquet.distribuer())
-
-    # Distribue deux cartes au croupier
-    main_croupier.ajouter_carte(paquet.distribuer())
-    main_croupier.ajouter_carte(paquet.distribuer())
-
-    resultat = "Voulez-vous tirer (h) ou rester (s) ?"
-    en_jeu = True
-
-    etat_partie()
-
-def tirer_carte():
-    global en_jeu, solde_jetons, paquet, main_joueur, resultat, mise
-
-    if en_jeu:
-        if main_joueur.calculer_valeur() <= 21:
-            main_joueur.ajouter_carte(paquet.distribuer())
-
-        if main_joueur.calculer_valeur() > 21:
-            print(f"Votre main est de {main_joueur.calculer_valeur()}. Vous brûlez !")
-            solde_jetons -= mise
-            resultat = f"Vous avez perdu cette manche. {message_relance}"
-            en_jeu = False
-        else:
-            resultat = "Voulez-vous tirer (h) ou rester (s) ?"
+def conseil_count():
+    """
+    Indique un message sur la mise ou l'attitude générale
+    selon le running_count.
+    """
+    rc = running_count
+    if rc >= 8:
+        return (f"Compte très élevé ({rc}). Avantage important : misez fort !")
+    elif rc >= 4:
+        return (f"Compte positif ({rc}). Avantage modéré : soyez agressif.")
+    elif rc <= -6:
+        return (f"Compte très négatif ({rc}). Le croupier est avantagé : baissez la mise.")
+    elif rc <= -2:
+        return (f"Compte négatif ({rc}). Prudence conseillée.")
     else:
-        resultat = f"Désolé, vous ne pouvez plus tirer de carte. {message_relance}"
+        return (f"Compte neutre ({rc}). Pas de gros avantage particulier.")
 
-    etat_partie()
+def conseil_strategie(main_joueur, carte_vis_croupier):
+    """
+    Donne un conseil plus “affûté” qui tient compte :
+    - Du total du joueur
+    - De la carte visible du croupier
+    - Du running_count (pour ajuster un peu le conseil)
 
-def rester():
-    global en_jeu, solde_jetons, paquet, main_croupier, main_joueur, resultat, mise
+    Logique simplifiée (inspirée d'une mini “basic strategy”),
+    agrémentée de modifs en fonction du count.
+    """
+    total_j = main_joueur.calculer_valeur()
+    # Valeur visible croupier : On convertit par ex 'A' => 1 ou 11, 'K'=>10, etc.
+    # On sait que pour la stratégie, 'A' est comme "carte forte" (10).
+    # On va se baser sur la "dangerosité" de la carte croupier.
+    danger_croup = carte_dangereuse(carte_vis_croupier)
 
-    if not en_jeu:
-        resultat = "La manche est déjà terminée."
-        etat_partie()
+    # Ajustement si count est élevé
+    # => le sabotage contient plus de 10 => on a plus de chance de bust en tirant,
+    #   mais plus de prob de black jack. On va rester un peu plus souvent, par ex.
+    # Ajustement si count est très négatif => plus de petites cartes => on peut se permettre de tirer plus ?
+    global running_count
+
+    # Marge ajustée : si le count est très positif, on surélève le "risque" de tirer.
+    # On fait un SHIFT de 1 ou 2 points dans la décision (ex: “stand plus tôt”).
+    shift = 0
+    if running_count >= 5:
+        shift = 1
+    elif running_count <= -5:
+        shift = -1
+
+    # On applique une “mini table” de décision.
+    # Ex: si total <= 11 => HIT
+    #     si total 12-16 => stand si croupier 2-6 (carte “faible”), sinon hit
+    #     si total >= 17 => stand
+    # On y ajoute un shift. S’il est +1, on stand un peu plus tôt, s’il est -1, on hit un peu plus.
+
+    # 1) Si total <= 11 + shift => always Hit
+    # 2) Si 12 + shift <= total <= 16 + shift => stand si croupier <7, sinon hit
+    # 3) Sinon => stand
+    # Danger croupier <7 = croupier a 2-6 => carte “faible”
+    # Danger croupier >=7 => carte “dangereuse” (7,8,9,10,A)
+    # On fait un bloc plus ou moins flexible.
+
+    # Calcul d’un total ajusté
+    total_adj = total_j + shift
+
+    if total_adj <= 11:
+        return "Conseil: Tirez (vous êtes assez bas)."
+    elif 12 <= total_adj <= 16:
+        if danger_croup < 7:
+            return "Conseil: Restez (croupier a une carte faible)."
+        else:
+            return "Conseil: Tirez (croupier a une carte forte)."
+    else:
+        return "Conseil: Restez (vous avez déjà un bon total)."
+
+def carte_dangereuse(valeur):
+    """
+    Renvoie un “rang de danger” pour la carte visible du croupier.
+    Plus c'est grand, plus c'est “dangereux”.
+    """
+    if valeur in ('10','J','Q','K','A'):
+        return 10
+    else:
+        # Convertit '2'...'9' en int
+        return int(valeur)  # si '2', int('2') = 2, etc.
+
+# ======================================================
+#         Fonctions de Jeu - Gérer les tours
+# ======================================================
+
+def initialiser_manche():
+    """
+    Met en place une nouvelle manche (distribution des cartes)
+    sans re-créer le shoe, ni reset le running_count,
+    sauf si re-mélange auto déjà fait dans shoe.distribuer().
+    On gère le fait de jouer 1 ou 2 mains.
+    """
+    global main_j1, main_j2, main_croupier
+    global main1_active, main2_active
+
+    main_j1 = Main()
+    main_j2 = Main()
+    main_croupier = Main()
+    
+    main1_active = True
+    main2_active = use_second_hand  # active si case cochée
+
+    # Distribue 2 cartes main_j1
+    main_j1.ajouter_carte(shoe.distribuer())
+    main_j1.ajouter_carte(shoe.distribuer())
+
+    # Si deuxième main activée
+    if use_second_hand:
+        main_j2.ajouter_carte(shoe.distribuer())
+        main_j2.ajouter_carte(shoe.distribuer())
+
+    # Croupier
+    main_croupier.ajouter_carte(shoe.distribuer())
+    main_croupier.ajouter_carte(shoe.distribuer())
+
+def en_jeu():
+    """
+    Vrai si au moins une main est encore active et
+    que le croupier n'a pas encore joué.
+    """
+    return (main1_active or main2_active) and not croupier_a_joue
+
+def tirer(main_joueur, numero_main):
+    global main1_active, main2_active
+
+    # On distribue une carte
+    main_joueur.ajouter_carte(shoe.distribuer())
+    
+    # Si bust => on “désactive” la main
+    if main_joueur.est_bust():
+        if numero_main == 1:
+            main1_active = False
+            perdre_mise()  # On retire la mise si on bust
+            afficher_message(f"Main 1 BUST ! -{mise} jetons")
+        else:
+            main2_active = False
+            perdre_mise()
+            afficher_message(f"Main 2 BUST ! -{mise} jetons")
+
+    maj_affichage()
+    check_fin_joueur()
+
+def rester(numero_main):
+    """
+    Le joueur reste pour la main numéro_main.
+    """
+    global main1_active, main2_active
+
+    if numero_main == 1:
+        main1_active = False
+    else:
+        main2_active = False
+
+    afficher_message(f"Main {numero_main} Stand.")
+    maj_affichage()
+    check_fin_joueur()
+
+def check_fin_joueur():
+    """
+    Si plus aucune main n’est active (tout le monde a Stand ou Bust),
+    le croupier joue automatiquement.
+    """
+    if not (main1_active or main2_active):
+        jouer_croupier()
+
+def jouer_croupier():
+    """
+    Le croupier tire jusqu'à >=17. Puis compare.
+    """
+    global croupier_a_joue
+
+    croupier_a_joue = True
+    val_c = main_croupier.calculer_valeur()
+
+    # Le croupier tire tant qu’il a < 17
+    while val_c < 17:
+        main_croupier.ajouter_carte(shoe.distribuer())
+        val_c = main_croupier.calculer_valeur()
+
+    # On compare toutes les mains non-bust
+    # Gains/pertes
+    message_final = ""
+    
+    if not main_j1.est_bust():
+        message_final += comparer_mains(main_j1, 1)
+    if use_second_hand and not main_j2.est_bust():
+        message_final += comparer_mains(main_j2, 2)
+
+    if message_final == "":
+        # ça veut dire que les mains du joueur étaient bust
+        message_final = "Toutes vos mains étaient bust avant que le croupier ne joue."
+
+    afficher_message(message_final)
+    maj_affichage()
+
+def comparer_mains(main_joueur, numero_main):
+    global solde_jetons, mise
+
+    total_j = main_joueur.calculer_valeur()
+    total_c = main_croupier.calculer_valeur()
+
+    if total_c > 21:
+        solde_jetons += mise
+        return f"Main {numero_main} vs Croupier {total_c} => croupier bust : +{mise} jetons\n"
+    elif total_j > total_c:
+        solde_jetons += mise
+        return f"Main {numero_main} => {total_j} vs {total_c} => vous gagnez : +{mise} jetons\n"
+    elif total_j == total_c:
+        return f"Main {numero_main} => {total_j} vs {total_c} => Égalité (push)\n"
+    else:
+        solde_jetons -= mise
+        return f"Main {numero_main} => {total_j} vs {total_c} => croupier gagne : -{mise} jetons\n"
+
+def perdre_mise():
+    global solde_jetons, mise
+    solde_jetons -= mise
+
+# ======================================================
+#       Interface Tkinter : Fenêtre et Widgets
+# ======================================================
+
+root = tk.Tk()
+root.title("BlackJack - Shoe 3 decks, 2 mains en option, Comptage Hi-Lo persistant")
+
+# Variables de suivi
+shoe = Shoe()  # Sabot global
+main_j1 = Main()
+main_j2 = Main()
+main_croupier = Main()
+main1_active = False
+main2_active = False
+croupier_a_joue = False  # Savoir si le croupier a déjà fini
+
+# Cadre principal
+frame_principal = tk.Frame(root, padx=10, pady=10)
+frame_principal.pack()
+
+# Label d'info
+label_info = tk.Label(frame_principal, text="Bienvenue au Blackjack !", fg="blue")
+label_info.grid(row=0, column=0, columnspan=5, sticky="w")
+
+# Labels pour afficher les mains
+label_main1 = tk.Label(frame_principal, text="", fg="black")
+label_main1.grid(row=1, column=0, columnspan=2, sticky="w")
+
+label_main2 = tk.Label(frame_principal, text="", fg="black")
+label_main2.grid(row=2, column=0, columnspan=2, sticky="w")
+
+label_croupier = tk.Label(frame_principal, text="", fg="black")
+label_croupier.grid(row=3, column=0, columnspan=2, sticky="w")
+
+# Conseils
+label_conseil_m1 = tk.Label(frame_principal, text="", fg="green")
+label_conseil_m1.grid(row=1, column=2, columnspan=3, sticky="w")
+
+label_conseil_m2 = tk.Label(frame_principal, text="", fg="green")
+label_conseil_m2.grid(row=2, column=2, columnspan=3, sticky="w")
+
+# Comptage
+label_count = tk.Label(frame_principal, text="", fg="red")
+label_count.grid(row=4, column=0, columnspan=5, sticky="w")
+
+# Solde
+label_solde = tk.Label(frame_principal, text=f"Solde : {solde_jetons}")
+label_solde.grid(row=5, column=0, sticky="w")
+
+# Mise
+label_mise = tk.Label(frame_principal, text=f"Mise : {mise}")
+label_mise.grid(row=5, column=1, sticky="e")
+entry_mise = tk.Entry(frame_principal, width=5)
+entry_mise.grid(row=5, column=2, sticky="w")
+entry_mise.insert(0, str(mise))
+
+# Case pour jouer la 2ᵉ main
+var_second_hand = tk.BooleanVar(value=False)
+check_second_hand = tk.Checkbutton(frame_principal, text="Jouer 2ᵉ main ?", variable=var_second_hand)
+check_second_hand.grid(row=6, column=0, sticky="w")
+
+# Boutons d'actions
+btn_tirer_m1 = tk.Button(frame_principal, text="Tirer (Main 1)", command=lambda: tirer(main_j1, 1))
+btn_tirer_m1.grid(row=7, column=0)
+
+btn_stand_m1 = tk.Button(frame_principal, text="Stand (Main 1)", command=lambda: rester(1))
+btn_stand_m1.grid(row=7, column=1)
+
+btn_tirer_m2 = tk.Button(frame_principal, text="Tirer (Main 2)", command=lambda: tirer(main_j2, 2))
+btn_tirer_m2.grid(row=8, column=0)
+
+btn_stand_m2 = tk.Button(frame_principal, text="Stand (Main 2)", command=lambda: rester(2))
+btn_stand_m2.grid(row=8, column=1)
+
+btn_nouvelle_manche = tk.Button(frame_principal, text="Nouvelle Manche", command=lambda: nouvelle_manche())
+btn_nouvelle_manche.grid(row=7, column=2)
+
+btn_quitter = tk.Button(frame_principal, text="Quitter", command=root.quit)
+btn_quitter.grid(row=8, column=2)
+
+def afficher_message(texte):
+    label_info.config(text=texte)
+
+def maj_affichage():
+    """
+    Met à jour l'affichage des mains, du croupier,
+    du solde, de la mise, etc.
+    """
+    # Affichage main 1
+    txt_m1 = f"Main 1: {main_j1} (Total={main_j1.calculer_valeur()})"
+    label_main1.config(text=txt_m1)
+
+    # Affichage main 2 (seulement si use_second_hand)
+    if use_second_hand:
+        txt_m2 = f"Main 2: {main_j2} (Total={main_j2.calculer_valeur()})"
+        label_main2.config(text=txt_m2)
+    else:
+        label_main2.config(text="(2ᵉ main non jouée)")
+
+    # Affichage croupier
+    if not croupier_a_joue and en_jeu():
+        # On n'affiche que la 1ère carte
+        if len(main_croupier.cartes) > 0:
+            c0 = main_croupier.cartes[0]
+            label_croupier.config(text=f"Croupier: [{c0}] + [Carte Cachée]")
+        else:
+            label_croupier.config(text="Croupier: (vide)")
+    else:
+        # Croupier a joué ou plus de main active => on dévoile tout
+        label_croupier.config(
+            text=f"Croupier: {main_croupier} (Total={main_croupier.calculer_valeur()})"
+        )
+
+    # Solde
+    label_solde.config(text=f"Solde : {solde_jetons}")
+
+    # Mise
+    label_mise.config(text=f"Mise : {mise}")
+
+    # Comptage
+    label_count.config(text=f"Comptage Hi-Lo : {running_count}\n{conseil_count()}")
+
+    # Conseils
+    carte_vis_croupier = main_croupier.cartes[0].valeur  # carte visible
+    if not main_j1.est_bust() and not croupier_a_joue:
+        label_conseil_m1.config(text=conseil_strategie(main_j1, carte_vis_croupier))
+    else:
+        label_conseil_m1.config(text="")
+
+    if use_second_hand and not main_j2.est_bust() and not croupier_a_joue:
+        label_conseil_m2.config(text=conseil_strategie(main_j2, carte_vis_croupier))
+    else:
+        label_conseil_m2.config(text="")
+
+def nouvelle_manche():
+    """
+    Prépare la configuration d'une nouvelle manche :
+    - Mise à jour de la mise
+    - Active/désactive la 2ᵉ main selon la case
+    - (Ré)initialise la manche et le croupier
+    """
+    global mise, use_second_hand, croupier_a_joue
+
+    # Récupérer la nouvelle mise
+    try:
+        m_temp = int(entry_mise.get())
+        if m_temp < 1:
+            afficher_message("La mise doit être >= 1.")
+            return
+        mise = m_temp
+    except ValueError:
+        afficher_message("La mise doit être un entier.")
         return
 
-    # Le croupier tire tant qu'il a moins de 17
-    while main_croupier.calculer_valeur() < 17:
-        main_croupier.ajouter_carte(paquet.distribuer())
+    # Vérifie si on veut la 2ᵉ main
+    use_second_hand = var_second_hand.get()
 
-    total_croupier = main_croupier.calculer_valeur()
-    total_joueur = main_joueur.calculer_valeur()
+    croupier_a_joue = False
 
-    if total_croupier > 21:
-        resultat = f"Le croupier dépasse 21 ({total_croupier}). Vous gagnez ! {message_relance}"
-        solde_jetons += mise
-    elif total_croupier < total_joueur:
-        resultat = f"Vous avez {total_joueur} contre {total_croupier} pour le croupier. Vous gagnez ! {message_relance}"
-        solde_jetons += mise
-    elif total_croupier == total_joueur:
-        resultat = f"Égalité ! (push) {message_relance}"
-    else:
-        resultat = f"Le croupier a {total_croupier} et vous {total_joueur}. Le croupier gagne. {message_relance}"
-        solde_jetons -= mise
+    # Distribue les cartes
+    initialiser_manche()
 
-    en_jeu = False
-    etat_partie()
+    afficher_message("Nouvelle donne !")
+    maj_affichage()
 
-def quitter_jeu():
-    print("Merci d'avoir joué !")
-    sys.exit(0)
+# On lance au démarrage
+nouvelle_manche()
 
-def etat_partie():
-    """
-    Affiche l'état actuel de la partie (mains, compte) et
-    donne un conseil basé sur le compte.
-    """
-    print("\n==== État de la partie ====")
-
-    # Afficher la main du joueur
-    print("Main du joueur :")
-    main_joueur.afficher_main(cacher_premiere=False)
-    print(f"Total joueur = {main_joueur.calculer_valeur()}")
-
-    # Afficher la main du croupier
-    print("\nMain du croupier :")
-    main_croupier.afficher_main(cacher_premiere=en_jeu)
-    if not en_jeu:
-        # Partie terminée, on affiche le total croupier
-        print(f"Total croupier = {main_croupier.calculer_valeur()}")
-
-    # Afficher le solde
-    print(f"\nVous avez maintenant {solde_jetons} jetons.")
-
-    # Afficher le running_count et un conseil
-    print(f"Running count (Hi-Lo) = {running_count}")
-    print("Conseil basé sur le compte :", conseil_count())
-
-    # Afficher le résultat ou la question en cours
-    print("\n" + str(resultat))
-
-    # Lire la commande
-    commande_joueur()
-
-def commande_joueur():
-    """
-    Lit la commande du joueur et exécute l’action correspondante.
-    """
-    choix = input(">> ").lower()
-
-    if choix == 'h':
-        tirer_carte()
-    elif choix == 's':
-        rester()
-    elif choix == 'd':
-        distribuer_cartes()
-    elif choix == 'q':
-        quitter_jeu()
-    else:
-        print("Choix invalide. Veuillez entrer : (h) tirer, (s) rester, (d) distribuer, (q) quitter.")
-        commande_joueur()
-
-def intro():
-    regles = """
-Bienvenue au BlackJack (avec comptage de cartes Hi-Lo) !
-Le but est de vous approcher le plus possible de 21 sans dépasser.
-Le croupier tire jusqu’à avoir au moins 17.
-Les As valent 1 ou 11, selon ce qui vous avantage.
-Comptage Hi-Lo :
-  - 2 à 6 = +1
-  - 7 à 9 =  0
-  - 10, J, Q, K, A = -1
-Plus le compte est élevé, plus le deck vous avantage.
-Appuyez sur (h) pour tirer, (s) pour rester, (d) pour distribuer, ou (q) pour quitter.
-"""
-    print(regles)
-
-# =========================================
-# Lancement du jeu
-# =========================================
-
-if __name__ == "__main__":
-    intro()
-    distribuer_cartes()
+root.mainloop()
